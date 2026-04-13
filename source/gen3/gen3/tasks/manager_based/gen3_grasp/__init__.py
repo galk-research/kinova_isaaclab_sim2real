@@ -12,7 +12,6 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.joint_pos_env_cfg:Gen3GraspEnvCfg",
-        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:Gen3GraspPPORunnerCfg",
-        "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ddpg_cfg.yaml",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.ddpg_cfg:Gen3GraspDDPGRunnerCfg",
     },
 )

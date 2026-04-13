@@ -50,14 +50,14 @@ class Gen3GraspEnvCfg(LiftEnvCfg):
             ),
         )
 
-        # --- Actions: arm (7 joints) + gripper (binary open/close) ---
+        # --- Actions: arm (7 joints) + gripper (continuous) ---
         self.actions.arm_action = mdp.JointPositionActionCfg(
             asset_name="robot",
             joint_names=["gen3_joint_[1-7]"],
             scale=0.2,
             use_default_offset=True,
         )
-        self.actions.gripper_action = mdp.BinaryJointPositionActionCfg(
+        self.actions.gripper_action = mdp.JointPositionActionCfg(
             asset_name="robot",
             joint_names=[
                 "gen3_robotiq_85_left_knuckle_joint",
@@ -67,22 +67,7 @@ class Gen3GraspEnvCfg(LiftEnvCfg):
                 "gen3_robotiq_85_left_finger_tip_joint",
                 "gen3_robotiq_85_right_finger_tip_joint",
             ],
-            open_command_expr={
-                "gen3_robotiq_85_left_knuckle_joint": 0.0,
-                "gen3_robotiq_85_right_knuckle_joint": 0.0,
-                "gen3_robotiq_85_left_inner_knuckle_joint": 0.0,
-                "gen3_robotiq_85_right_inner_knuckle_joint": 0.0,
-                "gen3_robotiq_85_left_finger_tip_joint": 0.0,
-                "gen3_robotiq_85_right_finger_tip_joint": 0.0,
-            },
-            close_command_expr={
-                "gen3_robotiq_85_left_knuckle_joint": 0.8,
-                "gen3_robotiq_85_right_knuckle_joint": 0.8,
-                "gen3_robotiq_85_left_inner_knuckle_joint": 0.8,
-                "gen3_robotiq_85_right_inner_knuckle_joint": 0.8,
-                "gen3_robotiq_85_left_finger_tip_joint": 0.8,
-                "gen3_robotiq_85_right_finger_tip_joint": 0.8,
-            },
+            scale=0.8,
         )
 
         # --- Command: not used for grasp-only, disable its visualization ---
@@ -116,58 +101,42 @@ class Gen3GraspEnvCfg(LiftEnvCfg):
         self.observations.policy.object_orientation = ObsTerm(
             func=mdp.object_orientation_in_robot_root_frame
         )
-
-        # --- Rewards ---
-        # Remove inherited rewards that don't apply to grasp-only
-        self.rewards.reaching_object = None
-        self.rewards.lifting_object = None
-        self.rewards.object_goal_tracking = None
-        self.rewards.object_goal_tracking_fine_grained = None
-
-        # Reaching: wider tanh for better global gradient
-        self.rewards.reaching_object_tanh = RewTerm(
-            func=mdp.object_distance_tanh,
-            params={"std": 0.15},
-            weight=2.0,
+        # Add achieved goal: current object position
+        self.observations.policy.achieved_goal = ObsTerm(
+            func=mdp.object_position
+        )
+        # Add desired goal: target object position
+        self.observations.policy.desired_goal = ObsTerm(
+            func=mdp.desired_goal
         )
 
-        # Dense Grasp: subtle guide to keep fingers shut
+        # --- Rewards ---
+        # Goal-based reward for HER
+        self.rewards.goal_distance = RewTerm(
+            func=mdp.goal_distance,
+            params={"reward_type": "dense"},
+            weight=-1.0,
+        )
+        self.rewards.goal_success = RewTerm(
+            func=mdp.goal_success,
+            params={"threshold": 0.05},
+            weight=100.0,
+        )
+
+        # Additional rewards for grasping
         self.rewards.dense_finger_closure = RewTerm(
             func=mdp.dense_finger_closure,
             params={"std": 0.05},
             weight=1.0,
         )
 
-        # Stability: 5.0 bonus — a solid anchor for the grasp
-        self.rewards.stable_grasp = RewTerm(
-            func=mdp.stable_grasp_duration,
-            params={"threshold": 0.05, "duration": 0.5},
-            weight=4.0,
-        )
-
-        # Dense lifting: massive upward pull to overcome table-safety
-        self.rewards.object_height_reward = RewTerm(
-            func=mdp.object_height_reward,
-            params={"table_z": 0.055},
-            weight=1000.0,
-        )
-
-        # Success bonus: one-time spike at 15cm (the final goal)
-        self.rewards.cube_lifted_bonus = RewTerm(
-            func=mdp.cube_lifted_bonus,
-            params={"height_threshold": 0.15},
-            weight=100.0,
-        )
-
-        # Action rate penalty: start low, ramp up via curriculum
-        self.rewards.action_rate.weight = 0.0
-        # Joint velocity penalty: start low, ramp up via curriculum
-        self.rewards.joint_vel.weight = 0.0
+        # Action rate penalty
+        self.rewards.action_rate.weight = -0.01
 
         # --- Termination: end episode on success ---
-        self.terminations.cube_lifted_success = DoneTerm(
-            func=mdp.cube_lifted_success,
-            params={"height_threshold": 0.15},
+        self.terminations.goal_success = DoneTerm(
+            func=mdp.goal_success,
+            params={"threshold": 0.05},
         )
 
         # --- Curriculum: gradually increase penalties to enforce smoothness ---

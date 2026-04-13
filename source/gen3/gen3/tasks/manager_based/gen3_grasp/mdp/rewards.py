@@ -225,3 +225,32 @@ def stable_grasp_duration(
     # How many ticks are needed for 'duration' seconds?
     needed_ticks = int(duration / env.step_dt)
     return (_GRASP_TICKS[env] >= needed_ticks).float()
+
+
+def goal_distance(
+    env: ManagerBasedRLEnv,
+    reward_type: str = "dense",
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """Reward based on distance between achieved and desired goal."""
+    object: RigidObject = env.scene[object_cfg.name]
+    achieved_goal = object.data.root_pos_w[:, :3]
+    desired_goal = torch.tensor([0.5, 0.0, 0.2], device=env.device).repeat(env.num_envs, 1)
+    dist = torch.norm(achieved_goal - desired_goal, dim=1)
+    if reward_type == "dense":
+        return -dist
+    else:
+        return - (dist < 0.05).float()
+
+
+def goal_success(
+    env: ManagerBasedRLEnv,
+    threshold: float = 0.05,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """Sparse reward for achieving the goal."""
+    object: RigidObject = env.scene[object_cfg.name]
+    achieved_goal = object.data.root_pos_w[:, :3]
+    desired_goal = torch.tensor([0.5, 0.0, 0.2], device=env.device).repeat(env.num_envs, 1)
+    dist = torch.norm(achieved_goal - desired_goal, dim=1)
+    return (dist < threshold).float()
